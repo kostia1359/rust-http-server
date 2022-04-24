@@ -35,7 +35,19 @@ fn handle_connection(mut stream: TcpStream) {
     match get_path(&request) {
         Ok(path) => match get_full_path_to_file(&path) {
             Ok(full_path) => {
-                
+                let path = Path::new(full_path);
+                let contents = fs::read_to_string(path).unwrap();
+
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {content_length}\nContent-Type: application/octet-stream\nContent-Disposition: attachment; filename=\"{filename}\"\r\n\r\n{content}",
+                    content_length = contents.len(),
+                    filename = path.file_name().unwrap().to_string_lossy(),
+                    content = contents,
+                );
+            
+                stream.write(response.as_bytes()).unwrap();
+                stream.flush().unwrap();
+
             },
             Err(err) => send_error(stream, err)
         },
