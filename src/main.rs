@@ -2,6 +2,7 @@ use std::env;
 use std::process;
 
 use test_server::Config;
+use test_server::run_server;
 
 fn main() {
     let config = Config::new(env::args()).unwrap_or_else(|err| {
@@ -9,6 +10,6 @@ fn main() {
         process::exit(1);
     });
 
-    println!("Starting test server...");
-    println!("{:?}", config)
+    println!("Server is listening on port {}", config.port);
+    run_server(&config);
 }
