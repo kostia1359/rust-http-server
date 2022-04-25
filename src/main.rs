@@ -11,5 +11,6 @@ fn main() {
     });
 
     println!("Server is listening on port {}", config.port);
+    println!("Root directory is: {}", config.root_dir);
     run_server(&config);
 }

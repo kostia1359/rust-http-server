@@ -9,7 +9,6 @@ use std::path::Path;
 
 use regex::Regex;
 
-
 use crate::ThreadPool;
 use crate::log;
 use crate::Config;
@@ -34,7 +33,6 @@ impl ResponseStream {
 impl Write for ResponseStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let size_str = format!("{:x}\r\n", buf.len());
-        let bytes = buf.len();
 
         self.stream.write(size_str.as_bytes())?;
         self.stream.write(buf)?;
@@ -54,25 +52,26 @@ pub fn run_server(config: &Config) {
 
     for stream in listener.incoming() {
         let stream = stream.unwrap();
+        let root_dir = config.root_dir.to_owned();
 
         pool.execute(|| {
-            handle_connection(stream);
+            handle_connection(stream, root_dir);
         });
     }
 
     log("Shutting down.");
 }
 
-fn handle_connection(mut stream: TcpStream) {
+fn handle_connection(mut stream: TcpStream, root_dir: String) {
     let mut buffer = [0; 1024];
     stream.read(&mut buffer).unwrap();
 
     let request = String::from_utf8_lossy(&buffer[..]);
     
     match get_path(&request) {
-        Ok(path) => match get_full_path_to_file(&path) {
+        Ok(path) => match get_full_path_to_file(&path, &root_dir) {
             Ok(full_path) => {
-                let path = Path::new(full_path);
+                let path = Path::new(&full_path);
                 let mut read_file = File::open(path).unwrap();
 
                 let response = format!(
@@ -118,21 +117,23 @@ fn get_path(request: &str) -> Result<String, ErrorCode> {
     }
 }
 
-fn get_full_path_to_file<'a>(full_path: &'a str) -> Result<&'a str, ErrorCode> {
-    let mut path = Path::new(full_path);
+fn get_full_path_to_file(full_path: &str, root_dir: &str) -> Result<String, ErrorCode> {
+    let path = Path::new(full_path);
 
     if path.exists() {
         if !path.is_dir() {
-            return Ok(full_path);
+            return Ok(full_path.to_owned());
         }
 
         return Err(ErrorCode::BadRequest)
     }
 
-    path = Path::new(&full_path[1..]);
+    let path = Path::new(&root_dir); 
+    let path = path.join(&full_path[1..]);
     if path.exists() {
         if !path.is_dir() {
-            return Ok(&full_path[1..]);
+            let path = path.to_str().unwrap().to_owned(); 
+            return Ok(path);
         }
         return Err(ErrorCode::BadRequest)
     }

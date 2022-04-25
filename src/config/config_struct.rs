@@ -1,3 +1,5 @@
+use std::env;
+
 #[derive(Debug)]
 pub struct Config {
     pub root_dir: String,
@@ -18,7 +20,10 @@ impl Config {
 
         let root_dir = match args.next() {
             Some(arg) => arg,
-            None => "/home".to_string(),
+            None => match env::current_dir(){
+                Ok(path) => path.display().to_string(),
+                Err(_) => return Err("Couldn't get current executable path"),
+            },
         };
 
         if port < 0 || port > 65535 {
