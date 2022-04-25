@@ -1,5 +1,8 @@
 # rust-http-server
-Simple server for downloading files. You must specify at least the port argument(which goes first):
+Simple server for downloading files. The server doesn't use any crates, except of regex.
+
+### Usage
+You must specify at least the port argument(which goes first):
 ```
 cargo run 8080
 ```
