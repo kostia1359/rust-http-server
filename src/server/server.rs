@@ -1,5 +1,8 @@
-use std::fs;
+use std::fs::File;
+
 use std::io::prelude::*;
+use std::io;
+
 use std::net::{TcpListener, TcpStream};
 
 use std::path::Path;
@@ -10,6 +13,40 @@ use regex::Regex;
 use crate::ThreadPool;
 use crate::log;
 use crate::Config;
+
+struct ResponseStream{
+    pub stream: TcpStream,
+}
+
+impl ResponseStream {
+    pub fn new(stream: TcpStream) -> ResponseStream {
+        ResponseStream {
+            stream: stream
+        }
+    }
+
+    pub fn finish(mut self) -> TcpStream {
+        self.stream.write(b"0\r\n\r\n").unwrap();
+        self.stream
+    }
+}
+
+impl Write for ResponseStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let size_str = format!("{:x}\r\n", buf.len());
+        let bytes = buf.len();
+
+        self.stream.write(size_str.as_bytes())?;
+        self.stream.write(buf)?;
+        self.stream.write(b"\r\n")?;
+
+        return Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.stream.flush()
+    }
+}
 
 pub fn run_server(config: &Config) {
     let listener = TcpListener::bind(format!("127.0.0.1:{}", config.port)).unwrap();
@@ -36,17 +73,19 @@ fn handle_connection(mut stream: TcpStream) {
         Ok(path) => match get_full_path_to_file(&path) {
             Ok(full_path) => {
                 let path = Path::new(full_path);
-                let contents = fs::read_to_string(path).unwrap();
+                let mut read_file = File::open(path).unwrap();
 
                 let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {content_length}\nContent-Type: application/octet-stream\nContent-Disposition: attachment; filename=\"{filename}\"\r\n\r\n{content}",
-                    content_length = contents.len(),
+                    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\nContent-Type: application/octet-stream\nContent-Disposition: attachment; filename=\"{filename}\"\r\n\r\n",
                     filename = path.file_name().unwrap().to_string_lossy(),
-                    content = contents,
                 );
-            
                 stream.write(response.as_bytes()).unwrap();
-                stream.flush().unwrap();
+
+                let mut response_stream = ResponseStream::new(stream);
+                io::copy( &mut read_file, &mut response_stream).unwrap();
+
+                let mut stream = response_stream.finish();
+                stream.flush().unwrap()
 
             },
             Err(err) => send_error(stream, err)
@@ -71,10 +110,10 @@ fn get_error_details(error_code: ErrorCode) -> (i32, String) {
 }
 
 fn get_path(request: &str) -> Result<String, ErrorCode> {
-    let re = Regex::new(r"GET (.*?) HTTP/1.1\r\n").unwrap();
+    let re = Regex::new(r"(GET|HEAD) (.*?) HTTP/1.1\r\n").unwrap();
 
     match re.captures(request){
-        Some(match_value) => Ok(match_value[1].to_owned()),
+        Some(match_value) => Ok(match_value[2].to_owned()),
         None => Err(ErrorCode:: NotImplemented)
     }
 }
