@@ -1,5 +1,6 @@
 use std::fs::File;
 
+use std::io::ErrorKind;
 use std::io::prelude::*;
 use std::io;
 
@@ -72,7 +73,21 @@ fn handle_connection(mut stream: TcpStream, root_dir: String) {
         Ok(path) => match get_full_path_to_file(&path, &root_dir) {
             Ok(full_path) => {
                 let path = Path::new(&full_path);
-                let mut read_file = File::open(path).unwrap();
+                let mut read_file = match File::open(path) {
+                    Ok(file) => file,
+                    Err(err) => match err.kind() {
+                        ErrorKind::PermissionDenied => {
+                            log(&format!("Error reading file: {}, error: {}", path.to_string_lossy(), err));
+                            send_error(stream, ErrorCode::Unauthorized);
+                            return;
+                        },
+                        _ => {
+                            log(&format!("Error reading file: {}, error: {}", path.to_string_lossy(), err));
+                            send_error(stream, ErrorCode::InternalServerError);
+                            return;
+                        }
+                    }
+                };
 
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\nContent-Type: application/octet-stream\nContent-Disposition: attachment; filename=\"{filename}\"\r\n\r\n",
@@ -97,14 +112,18 @@ fn handle_connection(mut stream: TcpStream, root_dir: String) {
 enum ErrorCode {
     NotImplemented,
     NotFound,
-    BadRequest,    
+    BadRequest, 
+    Unauthorized,
+    InternalServerError   
 }
 
 fn get_error_details(error_code: ErrorCode) -> (i32, String) {
     match error_code {
-        ErrorCode::NotImplemented => (501, "Not Implemented".to_owned()),
-        ErrorCode::NotFound => (404, "Not Found".to_owned()),
         ErrorCode::BadRequest => (400, "Bad Request".to_owned()),
+        ErrorCode::Unauthorized => (401, "Unauthorized".to_owned()),
+        ErrorCode::NotFound => (404, "Not Found".to_owned()),
+        ErrorCode::InternalServerError => (500, "Internal Server Error".to_owned()),
+        ErrorCode::NotImplemented => (501, "Not Implemented".to_owned()),
     }
 }
 
